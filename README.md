@@ -1,3 +1,6 @@
+This is a project form below:
+
+
 # SNLI task with LSTM Memory Network encoder-dencoder and neural attention
 This is an implementation for the deep attention fusion LSTM memory network presented in the paper "[Long Short-Term Memory Networks for Machine Reading](http://arxiv.org/abs/1601.06733)" 
 Please note that it is a research code.
