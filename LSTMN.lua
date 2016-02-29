@@ -4,7 +4,7 @@ require 'nngraph'
 require 'rnn'
 model_utils = require 'util.model_utils'
 BatchLoader = require 'util.BatchLoader'
-require 'util.MaskedLoss'
+--require 'util.MaskedLoss'
 require 'util.misc'
 require 'util.CAveTable'
 require 'optim'
@@ -298,10 +298,10 @@ for i = 1, iterations do
   end
 
   -- index 1 is zero
-  enc_lookup.weight[1]:zero()
-  enc_lookup.gradWeight[1]:zero()
-  dec_lookup.weight[1]:zero()
-  dec_lookup.gradWeight[1]:zero()
+--  enc_lookup.weight[1]:zero()
+--  enc_lookup.gradWeight[1]:zero()
+--  dec_lookup.weight[1]:zero()
+--  dec_lookup.gradWeight[1]:zero()
 
   -- misc
   if i%5==0 then collectgarbage() end
