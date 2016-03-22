@@ -1,5 +1,5 @@
 This is a project form below:
-
+add a mask
 
 # SNLI task with LSTM Memory Network encoder-dencoder and neural attention
 
