@@ -1,6 +1,7 @@
 require 'torch'
 require 'nn'
 require 'nngraph'
+nngraph.setDebug(true)
 require 'rnn'
 model_utils = require 'util.model_utils'
 BatchLoader = require 'util.BatchLoader'
@@ -18,7 +19,7 @@ cmd:text()
 cmd:text('Options')
 cmd:option('-data_dir', 'data', 'path of the dataset')
 cmd:option('-batch_size', '16', 'number of batches')
-cmd:option('-max_epochs', 4, 'number of full passes through the training data')
+cmd:option('-max_epochs', 10, 'number of full passes through the training data')
 cmd:option('-rnn_size', 400, 'dimensionality of sentence embeddings')
 cmd:option('-word_vec_size', 300, 'dimensionality of word embeddings')
 cmd:option('-dropout',0.4,'dropout. 0 = no dropout')
@@ -60,7 +61,8 @@ if opt.cudnn == 1 then
 end
 
 -- create data loader
-loader = BatchLoader.create(opt.data_dir, opt.max_length, opt.batch_size)
+loader = BatchLoader.create(opt.data_dir, opt.max_length, opt.batch_size, 'loader_20_16')
+--loader = torch.load('loader_20_16')
 opt.seq_length = loader.max_sentence_l 
 opt.vocab_size = #loader.idx2word
 opt.classes = 3
@@ -68,7 +70,9 @@ opt.word2vec = loader.word2vec
 -- model
 protos = {}
 protos.enc = encoder.lstmn(opt.vocab_size, opt.rnn_size, opt.dropout, opt.word_vec_size, opt.batch_size, opt.word2vec)
+protos.enc.name = 'encoder'
 protos.dec = decoder.lstmn(opt.vocab_size, opt.rnn_size, opt.dropout, opt.word_vec_size, opt.batch_size, opt.word2vec)
+protos.dec.name = 'decoder'
 protos.criterion = nn.ClassNLLCriterion()
 protos.classifier = classifier_simple.classifier(opt.rnn_size, opt.dropout, opt.classes)
 -- ship to gpu
@@ -128,7 +132,7 @@ function eval_split(split_idx)
     table.insert(rnn_h_enc, h_init:clone())
     for t=1,opt.max_length do
       clones.enc[t]:evaluate()
-      local lst = clones.enc[t]:forward({x[{{},t}], narrow_list(rnn_c_enc, 1, t), narrow_list(rnn_h_enc, 1, t)})
+      local lst = clones.enc[t]:forward({x[{{},t}], narrow_list(rnn_c_enc, 1, t), narrow_list(rnn_h_enc, 1, t),x[{{},t}]:gt(1)})
       table.insert(rnn_c_enc, lst[1])
       table.insert(rnn_h_enc, lst[2])
     end
@@ -141,7 +145,7 @@ function eval_split(split_idx)
     table.insert(rnn_h_dec, rnn_h_enc[opt.max_length+1]:clone())
     for t=1,opt.max_length do
       clones.dec[t]:evaluate()
-      local lst = clones.dec[t]:forward({y[{{},t}], rnn_a[t-1], rnn_alpha[t-1], narrow_list(rnn_c_dec, 1, t), narrow_list(rnn_h_dec, 1, t), rnn_c_enc, rnn_h_enc})
+      local lst = clones.dec[t]:forward({y[{{},t}], rnn_a[t-1], rnn_alpha[t-1], narrow_list(rnn_c_dec, 1, t), narrow_list(rnn_h_dec, 1, t), rnn_c_enc, rnn_h_enc,y[{{},t}]:gt(1) })
       table.insert(rnn_a, lst[1])
       table.insert(rnn_alpha, lst[2])
       table.insert(rnn_c_dec, lst[3])
@@ -178,7 +182,9 @@ function feval(x)
   table.insert(rnn_h_enc, h_init:clone())
   for t=1,opt.max_length do
     clones.enc[t]:training()
-    local lst = clones.enc[t]:forward({x[{{},t}], narrow_list(rnn_c_enc, 1, t), narrow_list(rnn_h_enc, 1, t)})
+    --print(x[{{},t}])
+	--print(x[{{},t}]:gt(1))
+    local lst = clones.enc[t]:forward({x[{{},t}], narrow_list(rnn_c_enc, 1, t), narrow_list(rnn_h_enc, 1, t),x[{{},t}]:gt(1)})
     table.insert(rnn_c_enc, lst[1])
     table.insert(rnn_h_enc, lst[2])
   end
@@ -191,7 +197,7 @@ function feval(x)
   table.insert(rnn_h_dec, rnn_h_enc[opt.max_length+1]:clone())
   for t=1,opt.max_length do
     clones.dec[t]:training()
-    local lst = clones.dec[t]:forward({y[{{},t}], rnn_a[t-1], rnn_alpha[t-1], narrow_list(rnn_c_dec, 1, t), narrow_list(rnn_h_dec, 1, t), rnn_c_enc, rnn_h_enc})
+    local lst = clones.dec[t]:forward({y[{{},t}], rnn_a[t-1], rnn_alpha[t-1], narrow_list(rnn_c_dec, 1, t), narrow_list(rnn_h_dec, 1, t), rnn_c_enc, rnn_h_enc, y[{{},t}]:gt(1)})
     table.insert(rnn_a, lst[1])
     table.insert(rnn_alpha, lst[2])
     table.insert(rnn_c_dec, lst[3])
@@ -266,7 +272,7 @@ for i = 1, iterations do
   local _, loss = optim.adam(feval, params, optim_state)
   train_losses[i] = loss[1]
   if i % opt.print_every == 0 then
-    print(string.format("%d/%d (epoch %.2f), train_loss = %6.4f", i, iterations, epoch, train_losses[i]))
+    print(string.format("[%s]: %d/%d (epoch %.2f), train_loss = %6.4f",os.date(), i, iterations, epoch, train_losses[i]))
   end
 
   -- validate and save checkpoints
@@ -298,10 +304,10 @@ for i = 1, iterations do
   end
 
   -- index 1 is zero
---  enc_lookup.weight[1]:zero()
---  enc_lookup.gradWeight[1]:zero()
---  dec_lookup.weight[1]:zero()
---  dec_lookup.gradWeight[1]:zero()
+  enc_lookup.weight[1]:zero()
+  enc_lookup.gradWeight[1]:zero()
+  dec_lookup.weight[1]:zero()
+  dec_lookup.gradWeight[1]:zero()
 
   -- misc
   if i%5==0 then collectgarbage() end

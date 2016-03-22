@@ -2,45 +2,53 @@ local BatchLoader = {}
 local stringx = require('pl.stringx')
 BatchLoader.__index = BatchLoader
 
-function BatchLoader.create(data_dir, max_sentence_l , batch_size)
+function BatchLoader.create(data_dir, max_sentence_l , batch_size ,data_file)
     local self = {}
     setmetatable(self, BatchLoader)
     local train_file = path.join(data_dir, 'train.txt')
     local valid_file = path.join(data_dir, 'dev.txt')
     local test_file = path.join(data_dir, 'test.txt')
     local input_files = {train_file, valid_file, test_file}
-    local input_w2v = path.join(data_dir, 'glove.42B.300d.txt')
+    local input_w2v = path.join(data_dir, 'glove840b_with_oov.txt')
 
-    -- construct a tensor with all the data
-    local s1, s2, label, idx2word, word2idx, word2vec = BatchLoader.text_to_tensor(input_files, max_sentence_l, input_w2v)
-    self.max_sentence_l = max_sentence_l
-    self.idx2word, self.word2idx = idx2word, word2idx
-    self.vocab_size = #self.idx2word 
-    self.word2vec = word2vec
-    self.split_sizes = {}
-    self.all_batches = {}
+	if data_file == nil then
+    	-- construct a tensor with all the data
+    	local s1, s2, label, idx2word, word2idx, word2vec = BatchLoader.text_to_tensor(input_files, max_sentence_l, input_w2v)
+    	self.max_sentence_l = max_sentence_l
+    	self.idx2word, self.word2idx = idx2word, word2idx
+    	self.vocab_size = #self.idx2word 
+    	self.word2vec = word2vec
+    	self.split_sizes = {}
+    	self.all_batches = {}
  
-    print(string.format('Word vocab size: %d', #self.idx2word))
-    -- cut off the end for train/valid sets so that it divides evenly
-    for split=1,3 do
-       local s1data = s1[split]
-       local s2data = s2[split]
-       local label_data = label[split]
-       local len = s1data:size(1)
-       if len % (batch_size) ~= 0 then
-          s1data = s1data:sub(1, batch_size * math.floor(len / batch_size))
-          s2data = s2data:sub(1, batch_size * math.floor(len / batch_size))
-          label_data = label_data:sub(1, batch_size * math.floor(len / batch_size))   --let's just make the batch_size a multiplier of the test data size
-       end
+    	print(string.format('Word vocab size: %d', #self.idx2word))
+    	-- cut off the end for train/valid sets so that it divides evenly
+    	for split=1,3 do
+    	   local s1data = s1[split]
+    	   local s2data = s2[split]
+    	   local label_data = label[split]
+    	   local len = s1data:size(1)
+    	   if len % (batch_size) ~= 0 then
+    	      s1data = s1data:sub(1, batch_size * math.floor(len / batch_size))
+    	      s2data = s2data:sub(1, batch_size * math.floor(len / batch_size))
+    	      label_data = label_data:sub(1, batch_size * math.floor(len / batch_size))   --let's just make the batch_size a multiplier of the test data size
+    	   end
 
-       s1_batches = s1data:split(batch_size,1)
-       s2_batches = s2data:split(batch_size,1)
-       label_batches = label_data:split(batch_size,1)
-       nbatches = #s1_batches
-       self.split_sizes[split] = nbatches
-       self.all_batches[split] = {s1_batches, s2_batches, label_batches}
-    end
- 
+    	   s1_batches = s1data:split(batch_size,1)
+    	   s2_batches = s2data:split(batch_size,1)
+    	   label_batches = label_data:split(batch_size,1)
+    	   nbatches = #s1_batches
+    	   self.split_sizes[split] = nbatches
+    	   self.all_batches[split] = {s1_batches, s2_batches, label_batches}
+    	end
+	else
+		loader = torch.load(data_file)
+		self.idx2word, self.word2idx = loader.idx2word, loader.word2idx
+		self.vocab_size = loader.vocab_size
+		self.word2vec = loader.word2vec
+		self.split_sizes = loader.split_sizes
+		self.all_batches = loader.all_batches 
+	end
     self.batch_idx = {0,0,0}
     print(string.format('data load done. Number of batches in train: %d, val: %d, test: %d', self.split_sizes[1], self.split_sizes[2], self.split_sizes[3]))
     collectgarbage()
@@ -133,13 +141,17 @@ function BatchLoader.text_to_tensor(input_files, max_sentence_l, input_w2v)
     local w2v_file = io.open(input_w2v, 'r')
     for line in w2v_file:lines() do
         tokens = stringx.split(line, ' ')
-        word = tokens[1]
-        if word2idx[word] ~= nil then
-            w2v[word2idx[word]] = torch.zeros(300) 
-            for tid=2,301 do
-                w2v[word2idx[word]][tid-1] = tonumber(tokens[tid])
-            end
-        end
+		if #tokens > 10 then
+        	word = tokens[1]
+        	if word2idx[word] ~= nil then
+        	    w2v[word2idx[word]] = torch.zeros(300) 
+        	    for tid=2,301 do
+        	        w2v[word2idx[word]][tid-1] = tonumber(tokens[tid])
+        	    end
+        	end
+		else
+			print(tokens)
+		end
     end
     w2v_file:close()
 

@@ -1,14 +1,14 @@
 import numpy as np
 w1 = {}
-vec = open('glove.840B.300d.txt', 'r')
+vec = open('./data/glove.840B.300d.txt', 'r')
 for line in vec.readlines():
   line=line.split(' ')
   w1[line[0]] = np.asarray([float(x) for x in line[1:]])
 vec.close()
 w2 = {}
-f1 = open('/disk/scratch/s1537177/entailment/data/train.txt','r')
-f2 = open('/disk/scratch/s1537177/entailment/data/dev.txt','r')
-f3 = open('/disk/scratch/s1537177/entailment/data/test.txt','r')
+f1 = open('./data/train.txt','r')
+f2 = open('./data/dev.txt','r')
+f3 = open('./data/test.txt','r')
 f = [f1, f2, f3]
 
 for file in f:
@@ -31,7 +31,10 @@ for file in f:
   file.close()
 
 for k in w2.iterkeys():
-  w2[k] = list(sum(w2[k])/len(w2[k]))
+  if len(w2[k]) != 0:
+    w2[k] = list(sum(w2[k])/len(w2[k]))
+  else:
+    print w2[k]
 
 s = open('oovvec', 'w')
 for k in w2.iterkeys():

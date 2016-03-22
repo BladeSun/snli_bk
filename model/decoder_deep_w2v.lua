@@ -20,6 +20,7 @@ function decoder_deep_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, ba
   table.insert(inputs, nn.Identity()()) -- prev_h_table [h0, h1, h2... h(t-1)] for decoder
   table.insert(inputs, nn.Identity()()) -- enc_c_table [c0, c1, c2... cm] for encoder
   table.insert(inputs, nn.Identity()()) -- enc_h_table [h0, h1, h2... hm] for encoder
+  table.insert(inputs, nn.Identity()()) -- mask 
 
   -- inputs
   local x, word_vec
@@ -30,6 +31,9 @@ function decoder_deep_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, ba
   local prev_h_table = inputs[5]
   local enc_c_table = inputs[6]
   local enc_h_table = inputs[7]
+  local mask = nn.Replicate(rnn_size,2)(inputs[8])
+  one_minus_mask = nn.AddConstant(1)(nn.MulConstant(-1)(mask))
+   
   word_vec_layer = LookupTable(input_size, vec_size, word2vec)
   word_vec_layer.name = 'dec_lookup'
   word_vec = word_vec_layer(inputs[1])
@@ -45,7 +49,7 @@ function decoder_deep_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, ba
   intra_x = nn.CAddTable()({intra_x, intra_a})
   local intra_h = nn.Linear(rnn_size, rnn_size)(nn.View(-1, rnn_size)(prev_h_join))   
   intra_h = nn.View(batch_size, -1)(intra_h)
-  local intra_sum = nn.Tanh()(nn.AddScalar()({intra_h, intra_x}))
+  local intra_sum = nn.Tanh()(nn.ReplicateAdd()({intra_h, intra_x}))
   intra_sum = nn.View(-1, rnn_size)(intra_sum)
   local intra_score = nn.Linear(rnn_size, 1)(intra_sum)  
   intra_score = nn.View(batch_size, -1)(intra_score)
@@ -56,6 +60,11 @@ function decoder_deep_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, ba
   local prev_h = nn.View(batch_size, rnn_size)(nn.MM(false, false)({intra_score, prev_h_join}))  --this is the allignment vector at time step t
   local prev_c = nn.View(batch_size, rnn_size)(nn.MM(false, false)({intra_score, prev_c_join}))
 
+  prev_h = nn.CAddTable()({
+        nn.CMulTable()({prev_h, mask}),
+        nn.CMulTable()({prev_a_intra, one_minus_mask}),
+    })
+
   -- inter attention
   local enc_h_join = nn.JoinTable(2)(enc_h_table)
   local enc_c_join = nn.JoinTable(2)(enc_c_table)
@@ -64,7 +73,7 @@ function decoder_deep_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, ba
   inter_x = nn.CAddTable()({inter_x, inter_a})
   local inter_h = nn.Linear(rnn_size, rnn_size)(nn.View(-1, rnn_size)(enc_h_join))   
   inter_h = nn.View(batch_size, -1)(inter_h)
-  local inter_sum = nn.Tanh()(nn.AddScalar()({inter_h, inter_x}))
+  local inter_sum = nn.Tanh()(nn.ReplicateAdd()({inter_h, inter_x}))
   inter_sum = nn.View(-1, rnn_size)(inter_sum)
   local inter_score = nn.Linear(rnn_size, 1)(inter_sum)  
   inter_score = nn.View(batch_size, -1)(inter_score)
@@ -74,6 +83,11 @@ function decoder_deep_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, ba
   enc_c_join = nn.View(batch_size, -1, rnn_size)(enc_c_join)
   local prev_enc = nn.View(batch_size, rnn_size)(nn.MM(false, false)({inter_score, enc_h_join}))  --this is the allignment vector at time step t
   local prev_mem = nn.View(batch_size, rnn_size)(nn.MM(false, false)({inter_score, enc_c_join}))  --this is the allignment vector at time step t
+
+  prev_enc = nn.CAddTable()({
+        nn.CMulTable()({prev_enc, mask}),
+        nn.CMulTable()({prev_a_inter,one_minus_mask }),
+    })  
   
   -- LSTM misc
   local i2h = nn.Narrow(2, 2 * rnn_size + 1, 4 * rnn_size)(x_all)
@@ -95,6 +109,19 @@ function decoder_deep_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, ba
         nn.CMulTable()({cast_gate,   prev_mem}),
     })
   local next_h = nn.CMulTable()({out_gate, nn.Tanh()(next_c)})
+
+  prev_c = nn.SelectTable(-1)(prev_c_table)
+  next_c = nn.CAddTable()({
+        nn.CMulTable()({next_c, mask}),
+        nn.CMulTable()({prev_c, one_minus_mask}),
+    }) 
+ 
+ 
+  prev_h = nn.SelectTable(-1)(prev_h_table)
+  next_h = nn.CAddTable()({
+        nn.CMulTable()({next_h, mask}),
+        nn.CMulTable()({prev_h, one_minus_mask}),
+    })
   
   -- outputs
   table.insert(outputs, prev_h)  -- intra a

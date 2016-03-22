@@ -15,13 +15,16 @@ function encoder_lstmn_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, b
   table.insert(inputs, nn.Identity()()) -- x
   table.insert(inputs, nn.Identity()()) -- prev_c_table [c0, c1, c2... c(t-1)]
   table.insert(inputs, nn.Identity()()) -- prev_h_table [h0, h1, h2... h(t-1)]
+  table.insert(inputs, nn.Identity()()) -- mask 
 
   local x, input_size_L, word_vec
   local outputs = {}
 
+
   -- c,h from previous timesteps
   local prev_c_table = inputs[2]
   local prev_h_table = inputs[3]
+  local mask = nn.Replicate(rnn_size,2)(inputs[4])
 
   -- the input to this layer
   word_vec_layer = LookupTable(input_size, vec_size, word2vec)
@@ -35,7 +38,7 @@ function encoder_lstmn_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, b
   local attention_x = nn.Linear(input_size_L, rnn_size)(x)
   local attention_h = nn.Linear(rnn_size, rnn_size)(nn.View(-1, rnn_size)(prev_h_join))   
   attention_h = nn.View(batch_size, -1)(attention_h)
-  local attention_sum = nn.Tanh()(nn.AddScalar()({attention_h, attention_x}))
+  local attention_sum = nn.Tanh()(nn.ReplicateAdd()({attention_h, attention_x}))
   attention_sum = nn.View(-1, rnn_size)(attention_sum)
   local attention_score = nn.Linear(rnn_size, 1)(attention_sum)  
   attention_score = nn.View(batch_size, -1)(attention_score)
@@ -69,6 +72,21 @@ function encoder_lstmn_w2v.lstmn(input_size, rnn_size, dropout, word_emb_size, b
     -- gated cells form the output
   local next_h = nn.CMulTable()({out_gate, nn.Tanh()(next_c)})
     
+  one_minus_mask = nn.AddConstant(1)(nn.MulConstant(-1)(mask))
+
+  prev_c = nn.SelectTable(-1)(prev_c_table)
+  next_c = nn.CAddTable()({
+        nn.CMulTable()({next_c, mask}),
+        nn.CMulTable()({prev_c, one_minus_mask}),
+    })
+  
+  
+  prev_h = nn.SelectTable(-1)(prev_h_table)
+  next_h = nn.CAddTable()({
+        nn.CMulTable()({next_h, mask}),
+        nn.CMulTable()({prev_h, one_minus_mask}),
+    })
+
   table.insert(outputs, next_c)
   table.insert(outputs, next_h)
 
